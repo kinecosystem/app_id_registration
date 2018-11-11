@@ -1,0 +1,15 @@
+version: '3'
+
+services:
+  db:
+    image: postgres:11-alpine
+    ports:
+      - 5432:5432
+    environment:
+      PYTHON_PASSWORD: 1234
+      POSTGRES_PASSWORD: 11111
+#      DB_NAME: 'applications_data'
+#      DB_HOST: 'localhost'
+#      SECRET_KEY: 'One kin to rule them all'
+    volumes:
+      - ./postgres/postgres-data:/var/lib/postgresql/data
