@@ -4,17 +4,18 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-flask = "*"
 flask-cors = "*"
-"psycopg2" = "*"
+psycopg2 = "*"
 flask-wtf = "*"
-"psycopg2-binary" = "*"
+psycopg2-binary = "*"
 sqlalchemy = "*"
 flask-sqlalchemy = "*"
 postgres = "*"
 flask-api = "*"
 gunicorn = "*"
 pip = "==18.0"
+datadog = "*"
+flask = "*"
 
 [dev-packages]
 
