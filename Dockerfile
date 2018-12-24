@@ -10,4 +10,6 @@ RUN pip install pipenv \
 	&&  apk add -qU --no-cache -t .build-deps gcc musl-dev git postgresql-dev \
 	&&  pipenv install
 
-CMD pipenv run python build_database.py && pipenv run python main.py
+EXPOSE 3000
+
+CMD pipenv run python build_database.py && pipenv run gunicorn -w 4 -b 0.0.0.0:3000 main:app
