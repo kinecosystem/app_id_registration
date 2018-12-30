@@ -1,14 +1,16 @@
-FROM python:3.7-alpine
+FROM python:3.7-alpine3.8
 
 RUN mkdir -p /opt/app_id_registration
 
 WORKDIR /opt/app_id_registration
 
-COPY . .
+COPY Pipfile* /opt/app_id_registration/
 
 RUN pip install pipenv \
 	&&  apk add -qU --no-cache -t .build-deps gcc musl-dev git postgresql-dev \
 	&&  pipenv install
+
+COPY . .
 
 EXPOSE 3000
 

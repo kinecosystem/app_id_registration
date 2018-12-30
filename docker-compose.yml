@@ -1,20 +1,16 @@
 version: '3'
 
 services:
-  db:
-    image: postgres:11-alpine
-    ports:
-      - 5432:5432
-    environment:
-      POSTGRES_PASSWORD: 11111
   app:
-    image: kinecosystem/app_registration:6c783d9
+    image: kinecosystem/app_id_registration:18a6950
+    build:
+       context: .
     ports:
       - 3000:3000
-#    network_mode: host
     environment:
-      PYTHON_PASSWORD: 1234
-      POSTGRES_PASSWORD: 11111
-      DB_NAME: 'application_data'
+      API_KEY: 'One Ring To Rule Them All'
+      PYTHON_PASSWORD: 'Q3ZHni@ecIPa'
+      DB_PASSWORD: '11111'
+      DB_NAME: 'applications'
       DB_HOST: 'db'
-      API_KEY: 'One kin to rule them all'
+      DB_ROLE: 'postgres'

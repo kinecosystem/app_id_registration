@@ -19,7 +19,7 @@ app = Flask(__name__)
 app.API_KEY = config.API_KEY
 CORS(app)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://{}:{}@{}:5432/{}'.format(config.DB_ROLE,
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://{}:{}@{}:5432/{}'.format(config.POSTGRES_USER,
                                                                                config.DB_PASSWORD,
                                                                                config.DB_HOST,
                                                                                config.DB_NAME.lower())
@@ -58,7 +58,7 @@ class Applications(db.Model):
 	public_wallet = db.Column(db.String(PUBLIC_WALLET_LENGTH), unique=True, nullable=True)
 
 	def __repr__(self):
-		return '<Application_data %r>' % self.id
+		return '<Applications %r>' % self.id
 
 
 class RegistrationForm(Form):
@@ -85,8 +85,7 @@ def generate_id():
 	return app_id if not app_id == 'anon' else generate_id()  # anon is reserved app id, recursion till id is not anon
 
 
-@app.route('/health', methods=['POST'])
-@require_appkey
+@app.route('/health', methods=['GET'])
 def health():
 	return generate_status_code(status.HTTP_200_OK)
 

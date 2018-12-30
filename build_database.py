@@ -8,8 +8,8 @@ import config
 
 def setup_postgres(db_name=''):
 	"""Set up a connection to the postgres database."""
-	conn = psycopg2.connect(
-		"postgresql://{}:{}@{}:5432".format(config.DB_ROLE, config.DB_PASSWORD, config.DB_HOST) + db_name)
+	uri = "postgresql://{}:{}@{}:5432".format(config.DB_ROLE, config.DB_PASSWORD, config.DB_HOST) + db_name
+	conn = psycopg2.connect(uri)
 	conn.autocommit = True
 	cur = conn.cursor()
 	return cur
@@ -22,17 +22,14 @@ def main():
 	try:
 		setup_postgres(db_name='/' + config.DB_NAME.lower())
 	except psycopg2.OperationalError as e:
-		if 'does not exist' in str(e):
-			pass
-		else:
-			raise
+		pass
 	else:
-			logging.info('Using existing database instead of creating a new one')
-			quit(0)
+		logging.info('Using existing database instead of creating a new one')
+		quit(0)
 
 	# Connect to the postgres database
 	try:
-		cur = setup_postgres()
+		cur = setup_postgres('/postgres')
 
 		# Create the database
 		cur.execute('CREATE DATABASE {};'.format(config.DB_NAME.lower()))
