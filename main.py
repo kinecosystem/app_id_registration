@@ -1,7 +1,7 @@
 import string
 import secrets
 
-from flask import Flask, request, abort
+from flask import Flask, request, abort, jsonify
 from functools import wraps
 from flask_api import status
 from flask_sqlalchemy import SQLAlchemy
@@ -19,7 +19,7 @@ app = Flask(__name__)
 app.API_KEY = config.API_KEY
 CORS(app)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://{}:{}@{}:5432/{}'.format(config.POSTGRES_USER,
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://{}:{}@{}:5432/{}'.format(config.DB_ROLE,
                                                                                config.DB_PASSWORD,
                                                                                config.DB_HOST,
                                                                                config.DB_NAME.lower())
@@ -29,6 +29,8 @@ db = SQLAlchemy(app)
 MIN_LENGTH = 4
 MAX_LENGTH = 250
 PUBLIC_WALLET_LENGTH = 56
+APP_ID_PATTERN = r'([a-zA-Z0-9]{4})'
+PUBLIC_ADDRESS_PATTERN = r'G([A-Z0-9]{55})'
 
 messages = {
 	200: 'OK',
@@ -36,7 +38,7 @@ messages = {
 }
 
 
-def require_appkey(view_function):
+def require_app_key(view_function):
     @wraps(view_function)
     def decorated_function(*args, **kwargs):
         if request.headers.get('x-api-key') and request.headers.get('x-api-key') == config.API_KEY:
@@ -52,31 +54,44 @@ def generate_status_code(code):
 
 class Applications(db.Model):
 	id = db.Column(db.String(4), primary_key=True)
-	email = db.Column(db.String(MAX_LENGTH), unique=True, nullable=True)
-	name = db.Column(db.String(MAX_LENGTH), nullable=True)
-	app_name = db.Column(db.String(MAX_LENGTH), nullable=True)
-	public_wallet = db.Column(db.String(PUBLIC_WALLET_LENGTH), unique=True, nullable=True)
+	email = db.Column(db.String(MAX_LENGTH),nullable=False) # mandatory
+	name = db.Column(db.String(MAX_LENGTH), nullable=False) # mandatory
+	app_name = db.Column(db.String(MAX_LENGTH), nullable=False) # mandatory
+	public_wallet = db.Column(db.String(PUBLIC_WALLET_LENGTH), nullable=True)
 
 	def __repr__(self):
 		return '<Applications %r>' % self.id
 
-
 class RegistrationForm(Form):
-	public_address_pattern = r'G([A-Z0-9]{55})'
 	email = StringField('email', validators=[DataRequired(), Email()])
 	name = StringField('name', validators=[DataRequired(), validators.length(min=MIN_LENGTH, max=MAX_LENGTH)])
 	app_name = StringField('app name',
-	                       validators=[DataRequired(), validators.length(min=MIN_LENGTH, max=MAX_LENGTH)])
+	                       validators=[DataRequired(), validators.length(min=MIN_LENGTH, max=MAX_LENGTH                                                     )])
 	public_wallet = StringField('public wallet',
-	                            validators=[DataRequired(),
-	                                        validators.length(min=PUBLIC_WALLET_LENGTH, max=PUBLIC_WALLET_LENGTH),
-	                                        validators.regexp(regex=public_address_pattern)])
+	                            validators=[validators.optional(), validators.length(min=PUBLIC_WALLET_LENGTH, max=PUBLIC_WALLET_LENGTH),
+	                                        validators.regexp(regex=PUBLIC_ADDRESS_PATTERN)])
+
+class UpdateForm(Form):
+	app_id = StringField('app_id', validators=[DataRequired(), validators.regexp(regex=APP_ID_PATTERN)])
+	email = StringField('email', validators=[validators.optional(), Email()])
+	name = StringField('name', validators=[validators.optional(), validators.length(min=MIN_LENGTH, max=MAX_LENGTH)])
+	app_name = StringField('app name',
+	                       validators=[validators.optional(), validators.length(min=MIN_LENGTH, max=MAX_LENGTH)])
+	public_wallet = StringField('public wallet',
+	                            validators=[validators.optional(), validators.length(min=PUBLIC_WALLET_LENGTH, max=PUBLIC_WALLET_LENGTH),
+	                                        validators.regexp(regex=PUBLIC_ADDRESS_PATTERN)])
 
 
-class DeletionForm(Form):
-	id_pattern = r'([a-zA-Z0-9]{4})'
-	app_id = StringField('app_id', validators=[DataRequired(), validators.regexp(regex=id_pattern)])
+class DeleteForm(Form):
+	app_id = StringField('app_id', validators=[DataRequired(), validators.regexp(regex=APP_ID_PATTERN)])
+	email = StringField('email', validators=[DataRequired(), Email()])
 
+
+class GetAppIdForm(Form):
+	app_id = StringField('app_id', validators=[DataRequired(), validators.regexp(regex=APP_ID_PATTERN)])
+
+def query_by_app_id(app_id):
+	return  db.session.query(Applications).filter_by(id=app_id).first()
 
 def generate_id():
 	length = 4
@@ -91,13 +106,13 @@ def health():
 
 
 @app.route('/register', methods=['POST'])
-@require_appkey
+@require_app_key
 def register():
 	form = RegistrationForm(request.args)
 	if not form.validate():
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
 	app_id = generate_id()
-	while db.session.query(Applications.id).filter_by(id=app_id).scalar() is not None:
+	while query_by_app_id(app_id) is not None:
 		app_id = generate_id()
 	email = form.email.data
 	app_data = Applications(id=app_id,
@@ -110,7 +125,7 @@ def register():
 		db.session.commit()
 		statsd.increment('application_registered.success',
 		                 tags=['app_id:%s' % app_id])
-		app.logger.debug('application_registered.failed: (%d app_id)', app_id)
+		app.logger.debug('application_registered.success: (%d app_id)', app_id)
 		return app_id
 	except IntegrityError:
 		db.session.rollback()
@@ -119,18 +134,64 @@ def register():
 		app.logger.error('application_registered.failed: (%d app_id)', app_id)
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
 
+@app.route('/update', methods=['PATCH'])
+@require_app_key
+def update():
+	form = UpdateForm(request.args)
+	if not form.validate():
+		return generate_status_code(status.HTTP_400_BAD_REQUEST)
+	app_id = form.app_id.data
 
-@app.route('/remove', methods=['DELETE'])
-@require_appkey
-def remove():
-	form = DeletionForm(request.args)
+	user = query_by_app_id(app_id)
+
+	if form.email.data != "": user.email = form.email.data
+	if form.name.data != "": user.name = form.name.data
+	if form.app_name.data != "": user.app_name = form.app_name.data
+	if form.public_wallet.data != "": user.public_wallet = form.public_wallet.data
+
+	try:
+		db.session.commit()
+		statsd.increment('application_update.success',
+		                 tags=['app_id:%s' % app_id])
+		app.logger.debug('application_update.success: (%d app_id)', app_id)
+		return app_id
+
+	except IntegrityError:
+		db.session.rollback()
+		statsd.increment('application_update.failed',
+		                 tags=['email:%s' % app_id])
+		app.logger.error('application_update.failed: (%d app_id)', app_id)
+		return generate_status_code(status.HTTP_400_BAD_REQUEST)
+
+@app.route('/get_app', methods=['GET'])
+@require_app_key
+def get_app():
+	form = GetAppIdForm(request.args)
 	if not form.validate():
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
 
-	app_id = db.session.query(Applications).filter_by(id=form.app_id.data).scalar()
-	if app_id is not None:
+	user = query_by_app_id(form.app_id.data)
+	result = {
+			    "app_id": user.id,
+			    "email": user.email,
+			    "name": user.name,
+			    "app_name": user.app_name,
+			    "public_wallet": user.public_wallet
+			}
+	return jsonify(result)
+
+@app.route('/remove', methods=['DELETE'])
+#@require_app_key
+def remove():
+	form = DeleteForm(request.args)
+	if not form.validate():
+		return generate_status_code(status.HTTP_400_BAD_REQUEST)
+
+	user = query_by_app_id(form.app_id.data)
+	if form.app_id.data == user.id and form.email.data == user.email:
+		app_id = user.id
 		try:
-			db.session.delete(app_id)
+			db.session.delete(user)
 			db.session.commit()
 			statsd.increment('application_deletion.success',
 			                 tags=['app_id:%s' % app_id])
@@ -143,6 +204,7 @@ def remove():
 	else:
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
 
+db.create_all()
 
-if __name__ == "main":
-	db.create_all()
+if __name__ == "__main__":
+	app.run(host='0.0.0.0', port=3000)

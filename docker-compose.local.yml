@@ -1,8 +1,15 @@
 version: '3'
 
+ # docker-compose -f docker-compose.yml -f docker-compose.local.yml up
 services:
+  db:
+    image: postgres:11-alpine
+    ports:
+    - 5432:5432
+    environment:
+      POSTGRES_PASSWORD: 11111
   app:
-    image: kinecosystem/app_id_registration:2103122
+    image: kinecosystem/app_id_registration:18a6950
     build:
        context: .
     ports:
