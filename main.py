@@ -26,7 +26,8 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://{}:{}@{}:5432/{}'.format(c
 app.config['APP_ID'] = config.API_KEY
 db = SQLAlchemy(app)
 
-MIN_LENGTH = 4
+APP_ID_LENGTH = 4
+MIN_LENGTH = 2
 MAX_LENGTH = 250
 PUBLIC_WALLET_LENGTH = 56
 APP_ID_PATTERN = r'([a-zA-Z0-9]{4})'
@@ -53,7 +54,7 @@ def generate_status_code(code):
 
 
 class Applications(db.Model):
-	id = db.Column(db.String(4), primary_key=True)
+	id = db.Column(db.String(APP_ID_LENGTH), primary_key=True)
 	email = db.Column(db.String(MAX_LENGTH),nullable=False) # mandatory
 	name = db.Column(db.String(MAX_LENGTH), nullable=False) # mandatory
 	app_name = db.Column(db.String(MAX_LENGTH), nullable=False) # mandatory
@@ -170,13 +171,13 @@ def get_app():
 	if not form.validate():
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
 
-	user = query_by_app_id(form.app_id.data)
+	application = query_by_app_id(form.app_id.data)
 	result = {
-			    "app_id": user.id,
-			    "email": user.email,
-			    "name": user.name,
-			    "app_name": user.app_name,
-			    "public_wallet": user.public_wallet
+			    "app_id": application.id,
+			    "email": application.email,
+			    "name": application.name,
+			    "app_name": application.app_name,
+			    "public_wallet": application.public_wallet
 			}
 	return jsonify(result)
 
