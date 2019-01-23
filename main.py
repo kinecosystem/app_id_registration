@@ -1,5 +1,6 @@
 import string
 import secrets
+import logging
 
 from flask import Flask, request, abort, jsonify
 from functools import wraps
@@ -26,7 +27,8 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://{}:{}@{}:5432/{}'.format(c
 app.config['APP_ID'] = config.API_KEY
 db = SQLAlchemy(app)
 
-MIN_LENGTH = 4
+APP_ID_LENGTH = 4
+MIN_LENGTH = 2
 MAX_LENGTH = 250
 PUBLIC_WALLET_LENGTH = 56
 APP_ID_PATTERN = r'([a-zA-Z0-9]{4})'
@@ -37,6 +39,7 @@ messages = {
 	400: 'Bad Request'
 }
 
+logger = logging.getLogger('app-id-registration')
 
 def require_app_key(view_function):
     @wraps(view_function)
@@ -53,7 +56,7 @@ def generate_status_code(code):
 
 
 class Applications(db.Model):
-	id = db.Column(db.String(4), primary_key=True)
+	id = db.Column(db.String(APP_ID_LENGTH), primary_key=True)
 	email = db.Column(db.String(MAX_LENGTH),nullable=False) # mandatory
 	name = db.Column(db.String(MAX_LENGTH), nullable=False) # mandatory
 	app_name = db.Column(db.String(MAX_LENGTH), nullable=False) # mandatory
@@ -125,13 +128,13 @@ def register():
 		db.session.commit()
 		statsd.increment('application_registered.success',
 		                 tags=['app_id:%s' % app_id])
-		app.logger.debug('application_registered.success: (%d app_id)', app_id)
+		logger.info('application_registered.success: (%d app_id)', app_id)
 		return app_id
 	except IntegrityError:
 		db.session.rollback()
 		statsd.increment('application_registered.failed',
 		                 tags=['email:%s' % email])
-		app.logger.error('application_registered.failed: (%d app_id)', app_id)
+		logger.error('application_registered.failed: (%d app_id)', app_id)
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
 
 @app.route('/update', methods=['PATCH'])
@@ -153,14 +156,14 @@ def update():
 		db.session.commit()
 		statsd.increment('application_update.success',
 		                 tags=['app_id:%s' % app_id])
-		app.logger.debug('application_update.success: (%d app_id)', app_id)
+		logger.info('application_update.success: (%d app_id)', app_id)
 		return app_id
 
 	except IntegrityError:
 		db.session.rollback()
 		statsd.increment('application_update.failed',
 		                 tags=['email:%s' % app_id])
-		app.logger.error('application_update.failed: (%d app_id)', app_id)
+		logger.error('application_update.failed: (%d app_id)', app_id)
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
 
 @app.route('/get_app', methods=['GET'])
@@ -170,18 +173,18 @@ def get_app():
 	if not form.validate():
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
 
-	user = query_by_app_id(form.app_id.data)
+	application = query_by_app_id(form.app_id.data)
 	result = {
-			    "app_id": user.id,
-			    "email": user.email,
-			    "name": user.name,
-			    "app_name": user.app_name,
-			    "public_wallet": user.public_wallet
+			    "app_id": application.id,
+			    "email": application.email,
+			    "name": application.name,
+			    "app_name": application.app_name,
+			    "public_wallet": application.public_wallet
 			}
 	return jsonify(result)
 
 @app.route('/remove', methods=['DELETE'])
-#@require_app_key
+@require_app_key
 def remove():
 	form = DeleteForm(request.args)
 	if not form.validate():
@@ -195,11 +198,11 @@ def remove():
 			db.session.commit()
 			statsd.increment('application_deletion.success',
 			                 tags=['app_id:%s' % app_id])
-			app.logger.debug('application_deletion.success: (%d app_id)', app_id)
+			logger.info('application_deletion.success: (%d app_id)', app_id)
 			return generate_status_code(status.HTTP_200_OK)
 		except IntegrityError:
 			db.session.rollback()
-			app.logger.error('application_deletion.failed: (%d app_id)', app_id)
+			logger.error('application_deletion.failed: (%d app_id)', app_id)
 			return generate_status_code(status.HTTP_400_BAD_REQUEST)
 	else:
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
