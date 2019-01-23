@@ -3,6 +3,7 @@ version: '3'
 services:
   app:
     image: kinecosystem/app_id_registration:2103122
+    network_mode: host # To connect to datadog agent
     build:
        context: .
     ports:
