@@ -39,6 +39,7 @@ messages = {
 	400: 'Bad Request'
 }
 
+logging.basicConfig(level='INFO', format='%(asctime)s | %(levelname)s | %(message)s')
 logger = logging.getLogger('app-id-registration')
 
 def require_app_key(view_function):
@@ -113,6 +114,8 @@ def health():
 def register():
 	form = RegistrationForm(request.args)
 	if not form.validate():
+		statsd.increment('application_registered.failed')
+		logger.error('application_registered.failed')
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
 	app_id = generate_id()
 	while query_by_app_id(app_id) is not None:
