@@ -5,9 +5,15 @@ To register an app to kin ecosystem, example request:
   'http://app-registration.developers.kinecosystem.com/register?email=EMAIL_ADDRESS&name=NAME&app_name=APP_NAME&public_wallet=PUBLIC_WALLET_ADDRESS' \
   -H 'x-api-key: yc7lzFjnjOadnDtLjf3848SaBW62PG&QAJtHvpbZtDZSnT'```
   
-  The following params are required for each contact details:
+  Request params:
   EMAIL_ADDRESS = contact's email address, needs validation, must be unique
   NAME = contact's name
   APP_NAME = application's name 
-  The pubic wallet address is mandatory:
-  PUBLIC_WALLET_ADDRESS = a kin's valid wallet address, needs validation, must be uniqu
+  PUBLIC_WALLET_ADDRESS = a kin's valid wallet address (optional)
+  
+  Expected response:
+  XXXX => 4 uppercase or lowercase and numbers
+  
+  'bad request' => One of the required field is missing or in incorrect format.
+  
+  '<title>401 Unauthorized</title>' => The API-key is invalid.

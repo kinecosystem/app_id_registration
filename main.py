@@ -103,9 +103,14 @@ def generate_id():
 			secrets.choice(string.ascii_lowercase + string.ascii_uppercase + string.digits) for _ in range(length))
 	return app_id if not app_id == 'anon' else generate_id()  # anon is reserved app id, recursion till id is not anon
 
+def short_log(message, app_id=""):
+	statsd.increment(message, tags=['app_id:%s' % app_id])
+	logger.info(f'{message} ; app_id: {app_id}')
+
 
 @app.route('/health', methods=['GET'])
 def health():
+	short_log('health_check.success', "")
 	return generate_status_code(status.HTTP_200_OK)
 
 
@@ -114,8 +119,7 @@ def health():
 def register():
 	form = RegistrationForm(request.args)
 	if not form.validate():
-		statsd.increment('application_registered.failed')
-		logger.error('application_registered.failed')
+		short_log('application_registered.failed')
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
 	app_id = generate_id()
 	while query_by_app_id(app_id) is not None:
@@ -129,15 +133,11 @@ def register():
 	try:
 		db.session.add(app_data)
 		db.session.commit()
-		statsd.increment('application_registered.success',
-		                 tags=['app_id:%s' % app_id])
-		logger.info('application_registered.success: (%d app_id)', app_id)
+		short_log('application_registered.success', app_id)
 		return app_id
 	except IntegrityError:
 		db.session.rollback()
-		statsd.increment('application_registered.failed',
-		                 tags=['email:%s' % email])
-		logger.error('application_registered.failed: (%d app_id)', app_id)
+		short_log('application_registered.failed', app_id)
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
 
 @app.route('/update', methods=['PATCH'])
@@ -157,16 +157,12 @@ def update():
 
 	try:
 		db.session.commit()
-		statsd.increment('application_update.success',
-		                 tags=['app_id:%s' % app_id])
-		logger.info('application_update.success: (%d app_id)', app_id)
+		short_log('application_update.success', app_id)
 		return app_id
 
 	except IntegrityError:
 		db.session.rollback()
-		statsd.increment('application_update.failed',
-		                 tags=['email:%s' % app_id])
-		logger.error('application_update.failed: (%d app_id)', app_id)
+		short_log('application_update.failed', app_id)
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
 
 @app.route('/get_app', methods=['GET'])
@@ -176,15 +172,22 @@ def get_app():
 	if not form.validate():
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
 
-	application = query_by_app_id(form.app_id.data)
-	result = {
-			    "app_id": application.id,
-			    "email": application.email,
-			    "name": application.name,
-			    "app_name": application.app_name,
-			    "public_wallet": application.public_wallet
-			}
-	return jsonify(result)
+	app_id = form.app_id.data;
+	application = query_by_app_id(app_id)
+	if application is not None:
+		result = {
+				    "app_id": app_id,
+				    "email": application.email,
+				    "name": application.name,
+				    "app_name": application.app_name,
+				    "public_wallet": application.public_wallet
+				}
+		short_log('application_retrieved.success', app_id)
+		return jsonify(result)
+	else:
+		short_log('application_retrieved.failed', app_id)
+		return generate_status_code(status.HTTP_400_BAD_REQUEST)
+
 
 @app.route('/remove', methods=['DELETE'])
 @require_app_key
@@ -199,13 +202,11 @@ def remove():
 		try:
 			db.session.delete(user)
 			db.session.commit()
-			statsd.increment('application_deletion.success',
-			                 tags=['app_id:%s' % app_id])
-			logger.info('application_deletion.success: (%d app_id)', app_id)
+			short_log('application_deletion.success', app_id)
 			return generate_status_code(status.HTTP_200_OK)
 		except IntegrityError:
 			db.session.rollback()
-			logger.error('application_deletion.failed: (%d app_id)', app_id)
+			short_log('application_deletion.failed', app_id)
 			return generate_status_code(status.HTTP_400_BAD_REQUEST)
 	else:
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
