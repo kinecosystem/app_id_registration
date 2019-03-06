@@ -15,3 +15,8 @@ services:
       DB_NAME: 'applications_db'
       DB_HOST: 'db'
       DB_ROLE: 'postgres'
+    logging:
+      driver: json-file
+      options:
+        max-size: 100m
+        max-file: "3"
