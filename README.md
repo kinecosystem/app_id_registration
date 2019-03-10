@@ -1,13 +1,88 @@
 # app_id_registration
 
-To register an app to kin ecosystem, example request:
-```curl -X POST \
-  'http://app-registration.developers.kinecosystem.com/register?email=EMAIL_ADDRESS&name=NAME&app_name=APP_NAME&public_wallet=PUBLIC_WALLET_ADDRESS' \
-  -H 'x-api-key: yc7lzFjnjOadnDtLjf3848SaBW62PG&QAJtHvpbZtDZSnT'```
-  
-  The following params are required for each contact details:
-  EMAIL_ADDRESS = contact's email address, needs validation, must be unique
-  NAME = contact's name
-  APP_NAME = application's name 
-  The pubic wallet address is mandatory:
-  PUBLIC_WALLET_ADDRESS = a kin's valid wallet address, needs validation, must be uniqu
+Register
+-
+Returns the new app id:
+```
+POST '{ "email":"contact's email address",
+         "name":"contact's name",
+         "app_name": "application's name",
+         "public_wallet": "a kin's valid wallet address (optional)" }' SERVICE_URL/register
+```
+
+Response:
+- The expected response is a 4 letters of letters and numbers:
+```
+{ XXXX }
+```
+
+Update
+-
+Update the application's data, it is required to provide the current app_id and either email or public_wallet in the API:
+```
+PATCH '{"app_id": "required current app_id",
+        "email": "required current email address",
+        ...  (list of the fields to update)}' SERVICE_URL/update
+```
+Or
+```
+PATCH '{"app_id": "required current app_id",
+        "public_wallet": "required current public wallet address",
+        ...  (list of the fields to update)}' SERVICE_URL/update
+```
+Response:
+- The expected response is a 4 letters of letters and numbers:
+```
+{ XXXX }
+```
+
+Get Application's Data:
+-
+Retrieve the application's data, it is required to provide the current app_id and either email or public_wallet in the API:
+```
+PATCH '{"app_id": "required current app_id",
+        "email": "required current email address"}' SERVICE_URL/get_app
+```
+Or
+```
+PATCH '{"app_id": "required current app_id",
+        "public_wallet": "required current public wallet address"}' SERVICE_URL/get_app
+```
+Response:
+- The expected response is a 4 letters of letters and numbers:
+```
+{ "app_id": "current app_id",
+  "app_name": "current application's name",
+  "email": "curent email",
+  "name": "current name",
+  "public_wallet": "current public address"}
+```
+
+Remove
+-
+Delete all the application's data, it is required to provide the current app_id and either email or public_wallet in the API:
+```
+Delete '{"app_id": "required current app_id",
+        "email": "required current email address"}' SERVICE_URL/remove
+```
+Or
+```
+PATCH '{"app_id": "required current app_id",
+        "public_wallet": "required current public wallet address"}' SERVICE_URL/remove
+```
+Response:
+```
+{ OK }
+```
+
+---
+Unexpected payload for all cases can result in the following errors:
+- One of the required field is missing or in incorrect format:
+```
+{ bad request }
+```
+- The API-key is invalid:
+```
+{ unauthorized }
+```
+

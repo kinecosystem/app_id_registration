@@ -1,8 +1,9 @@
 import string
 import secrets
 import logging
+from json import JSONDecodeError
 
-from flask import Flask, request, abort, jsonify
+from flask import Flask, request, abort, json
 from functools import wraps
 from flask_api import status
 from flask_sqlalchemy import SQLAlchemy
@@ -36,24 +37,12 @@ PUBLIC_ADDRESS_PATTERN = r'G([A-Z0-9]{55})'
 
 messages = {
 	200: 'OK',
-	400: 'Bad Request'
+	400: 'Bad Request',
+	401: 'Unauthorized'
 }
 
 logging.basicConfig(level='INFO', format='%(asctime)s | %(levelname)s | %(message)s')
 logger = logging.getLogger('app-id-registration')
-
-def require_app_key(view_function):
-    @wraps(view_function)
-    def decorated_function(*args, **kwargs):
-        if request.headers.get('x-api-key') and request.headers.get('x-api-key') == config.API_KEY:
-            return view_function(*args, **kwargs)
-        else:
-            abort(401)
-    return decorated_function
-
-
-def generate_status_code(code):
-	return messages[code], code
 
 
 class Applications(db.Model):
@@ -66,36 +55,80 @@ class Applications(db.Model):
 	def __repr__(self):
 		return '<Applications %r>' % self.id
 
+class BaseForm(Form):
+	app_id = StringField('app_id', validators=[DataRequired(), validators.regexp(regex=APP_ID_PATTERN)])
+	email = StringField('email', validators=[validators.optional(), Email()])
+	public_wallet = StringField('public_wallet',
+	                            validators=[validators.optional(),
+	                                        validators.length(min=PUBLIC_WALLET_LENGTH, max=PUBLIC_WALLET_LENGTH),
+	                                        validators.regexp(regex=PUBLIC_ADDRESS_PATTERN)])
+
+	def validate(self):
+		if not super().validate():
+			return False
+		if not self.email.data and not self.public_wallet.data:
+			return False
+		return True
+
+
 class RegistrationForm(Form):
 	email = StringField('email', validators=[DataRequired(), Email()])
 	name = StringField('name', validators=[DataRequired(), validators.length(min=MIN_LENGTH, max=MAX_LENGTH)])
-	app_name = StringField('app name',
-	                       validators=[DataRequired(), validators.length(min=MIN_LENGTH, max=MAX_LENGTH                                                     )])
-	public_wallet = StringField('public wallet',
+	app_name = StringField('app_name',
+	                       validators=[DataRequired(), validators.length(min=MIN_LENGTH, max=MAX_LENGTH)])
+	public_wallet = StringField('public_wallet',
 	                            validators=[validators.optional(), validators.length(min=PUBLIC_WALLET_LENGTH, max=PUBLIC_WALLET_LENGTH),
 	                                        validators.regexp(regex=PUBLIC_ADDRESS_PATTERN)])
 
-class UpdateForm(Form):
-	app_id = StringField('app_id', validators=[DataRequired(), validators.regexp(regex=APP_ID_PATTERN)])
-	email = StringField('email', validators=[validators.optional(), Email()])
+
+class UpdateForm(BaseForm):
 	name = StringField('name', validators=[validators.optional(), validators.length(min=MIN_LENGTH, max=MAX_LENGTH)])
-	app_name = StringField('app name',
+	app_name = StringField('app_name',
 	                       validators=[validators.optional(), validators.length(min=MIN_LENGTH, max=MAX_LENGTH)])
-	public_wallet = StringField('public wallet',
-	                            validators=[validators.optional(), validators.length(min=PUBLIC_WALLET_LENGTH, max=PUBLIC_WALLET_LENGTH),
-	                                        validators.regexp(regex=PUBLIC_ADDRESS_PATTERN)])
 
 
-class DeleteForm(Form):
-	app_id = StringField('app_id', validators=[DataRequired(), validators.regexp(regex=APP_ID_PATTERN)])
-	email = StringField('email', validators=[DataRequired(), Email()])
+class GetAppIdForm(BaseForm):
+	pass
 
 
-class GetAppIdForm(Form):
-	app_id = StringField('app_id', validators=[DataRequired(), validators.regexp(regex=APP_ID_PATTERN)])
+
+class DeleteForm(BaseForm):
+	pass
+
+
+def require_app_key(view_function):
+	@wraps(view_function)
+	def decorated_function(*args, **kwargs):
+		if request.headers.get('x-api-key') and request.headers.get('x-api-key') == config.API_KEY:
+			return view_function(*args, **kwargs)
+		else:
+			return generate_status_code(status.HTTP_401_UNAUTHORIZED)
+	return decorated_function
+
+
+def generate_status_code(code):
+	return messages[code], code
+
+
+def validate_data(form, application):
+	if application is None:
+		return False
+
+	if form.email.data != "" and form.public_wallet.data != "":
+		if application.email == form.email.data and application.public_wallet == form.public_wallet.data:
+			return True
+	elif form.email.data != "":
+		if application.email == form.email.data:
+			return True
+	elif form.public_wallet.data != "":
+		if application.public_wallet == form.public_wallet.data:
+			return True
+	return False
+
 
 def query_by_app_id(app_id):
 	return  db.session.query(Applications).filter_by(id=app_id).first()
+
 
 def generate_id():
 	length = 4
@@ -104,8 +137,35 @@ def generate_id():
 	return app_id if not app_id == 'anon' else generate_id()  # anon is reserved app id, recursion till id is not anon
 
 
+def short_error(message, data=None):
+	call_statsd(message, data)
+	logger.error(f'{message} ; data: {data}')
+
+
+def short_log(message, data=None):
+	call_statsd(message, data)
+	logger.info(f'{message} ; data: {data}')
+
+
+def call_statsd(message, data=None):
+	try:
+		result = json.loads(data) if data is not None else {"app_id": ""}
+	except JSONDecodeError:
+		result = {"app_id": data}
+
+	statsd.increment(message, tags=['app_id:%s' % result["app_id"]])
+
+def init_data(app_id=None, email=None, name=None, app_name=None, public_wallet=None):
+	data = vars()
+	result = {}
+	for k, v in data.items():
+		if v is not None:
+			result[k] = v
+	return json.dumps(result)
+
 @app.route('/health', methods=['GET'])
 def health():
+	short_log('health_check.success')
 	return generate_status_code(status.HTTP_200_OK)
 
 
@@ -114,101 +174,110 @@ def health():
 def register():
 	form = RegistrationForm(request.args)
 	if not form.validate():
-		statsd.increment('application_registered.failed')
-		logger.error('application_registered.failed')
+		short_error('application_registered.not_validate')
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
+
 	app_id = generate_id()
+
 	while query_by_app_id(app_id) is not None:
 		app_id = generate_id()
 	email = form.email.data
-	app_data = Applications(id=app_id,
+	application = Applications(id=app_id,
 	                        email=email,
 	                        name=form.name.data,
 	                        app_name=form.app_name.data,
 	                        public_wallet=form.public_wallet.data)
 	try:
-		db.session.add(app_data)
+		db.session.add(application)
 		db.session.commit()
-		statsd.increment('application_registered.success',
-		                 tags=['app_id:%s' % app_id])
-		logger.info('application_registered.success: (%d app_id)', app_id)
+		application = init_data(app_id, application.email, application.name, application.app_name,
+		                     application.public_wallet)
+		short_log('application_registered.success', application)
 		return app_id
 	except IntegrityError:
 		db.session.rollback()
-		statsd.increment('application_registered.failed',
-		                 tags=['email:%s' % email])
-		logger.error('application_registered.failed: (%d app_id)', app_id)
+		short_log('application_registered.failed', app_id)
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
+
 
 @app.route('/update', methods=['PATCH'])
 @require_app_key
 def update():
 	form = UpdateForm(request.args)
 	if not form.validate():
+		short_error('application_update.not_validate')
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
+
 	app_id = form.app_id.data
+	application = query_by_app_id(app_id)
 
-	user = query_by_app_id(app_id)
+	if application is None or not validate_data(form, application):
+		short_error('application_update.not_found', app_id)
+		return generate_status_code(status.HTTP_400_BAD_REQUEST)
 
-	if form.email.data != "": user.email = form.email.data
-	if form.name.data != "": user.name = form.name.data
-	if form.app_name.data != "": user.app_name = form.app_name.data
-	if form.public_wallet.data != "": user.public_wallet = form.public_wallet.data
+	if form.email.data != "": application.email = form.email.data
+	if form.name.data != "": application.name = form.name.data
+	if form.app_name.data != "": application.app_name = form.app_name.data
+	if form.public_wallet.data != "": application.public_wallet = form.public_wallet.data
 
 	try:
 		db.session.commit()
-		statsd.increment('application_update.success',
-		                 tags=['app_id:%s' % app_id])
-		logger.info('application_update.success: (%d app_id)', app_id)
+		app_data = init_data(app_id, application.email, application.name, application.app_name, application.public_wallet)
+		short_log('application_update.success', app_data)
 		return app_id
 
 	except IntegrityError:
 		db.session.rollback()
-		statsd.increment('application_update.failed',
-		                 tags=['email:%s' % app_id])
-		logger.error('application_update.failed: (%d app_id)', app_id)
+		short_error('application_update.failed', app_id)
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
+
 
 @app.route('/get_app', methods=['GET'])
 @require_app_key
 def get_app():
 	form = GetAppIdForm(request.args)
 	if not form.validate():
+		short_error('application_retrieved.not_validate')
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
 
-	application = query_by_app_id(form.app_id.data)
-	result = {
-			    "app_id": application.id,
-			    "email": application.email,
-			    "name": application.name,
-			    "app_name": application.app_name,
-			    "public_wallet": application.public_wallet
-			}
-	return jsonify(result)
+	app_id = form.app_id.data;
+	application = query_by_app_id(app_id)
+
+	if application is None or not validate_data(form, application):
+		short_error('application_retrieved.not_found', app_id)
+		return generate_status_code(status.HTTP_400_BAD_REQUEST)
+
+	app_data = init_data(app_id, application.email, application.name, application.app_name, application.public_wallet)
+	short_log('application_retrieved.success', app_data)
+	return app_data
+
 
 @app.route('/remove', methods=['DELETE'])
 @require_app_key
 def remove():
 	form = DeleteForm(request.args)
 	if not form.validate():
+		short_error('application_deletion.not_validate')
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
 
-	user = query_by_app_id(form.app_id.data)
-	if form.app_id.data == user.id and form.email.data == user.email:
-		app_id = user.id
-		try:
-			db.session.delete(user)
-			db.session.commit()
-			statsd.increment('application_deletion.success',
-			                 tags=['app_id:%s' % app_id])
-			logger.info('application_deletion.success: (%d app_id)', app_id)
-			return generate_status_code(status.HTTP_200_OK)
-		except IntegrityError:
-			db.session.rollback()
-			logger.error('application_deletion.failed: (%d app_id)', app_id)
-			return generate_status_code(status.HTTP_400_BAD_REQUEST)
-	else:
+	app_id = form.app_id.data
+	application = query_by_app_id(app_id)
+
+	if application is None or not validate_data(form, application):
+		short_error('application_deletion.not_found', app_id)
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
+
+	try:
+		db.session.delete(application)
+		db.session.commit()
+		app_data = init_data(app_id, application.email, application.name, application.app_name, application.public_wallet)
+		short_log('application_deletion.success', app_data)
+		return generate_status_code(status.HTTP_200_OK)
+	except IntegrityError:
+		db.session.rollback()
+		short_error('application_deletion.failed', app_id)
+		return generate_status_code(status.HTTP_400_BAD_REQUEST)
+
 
 db.create_all()
 
