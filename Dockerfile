@@ -1,4 +1,4 @@
-FROM python:3.7-alpine3.8
+FROM python:3.7-stretch
 
 RUN mkdir -p /opt/app_id_registration
 
@@ -7,7 +7,7 @@ WORKDIR /opt/app_id_registration
 COPY Pipfile* /opt/app_id_registration/
 
 RUN pip install pipenv \
-	&&  apk add -qU --no-cache -t .build-deps gcc musl-dev git postgresql-dev \
+	&&  apt-get update && apt-get install -y libpq-dev \
 	&&  pipenv install
 
 COPY . .
