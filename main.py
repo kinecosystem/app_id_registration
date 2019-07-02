@@ -125,6 +125,15 @@ def validate_data(form, application):
 			return True
 	return False
 
+def validate_update_data(form, application):
+	if application is None:
+		return False
+
+	if form.email.data != "" and form.public_wallet.data != "":
+		if application.email == form.email.data or application.public_wallet == form.public_wallet.data:
+			return True
+	return False
+
 
 def query_by_app_id(app_id):
 	return  db.session.query(Applications).filter_by(id=app_id).first()
@@ -211,7 +220,7 @@ def update():
 	app_id = form.app_id.data
 	application = query_by_app_id(app_id)
 
-	if application is None or not validate_data(form, application):
+	if application is None or not validate_update_data(form, application):
 		short_error('application_update.not_found', app_id)
 		return generate_status_code(status.HTTP_400_BAD_REQUEST)
 

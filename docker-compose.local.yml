@@ -8,10 +8,9 @@ services:
     - 5432:5432
     environment:
       POSTGRES_PASSWORD: 11111
+
   app:
-    image: kinecosystem/app_id_registration:18a6950
-    build:
-       context: .
+    image: kinecosystem/app_id_registration:20190701
     ports:
       - 3000:3000
     environment:
